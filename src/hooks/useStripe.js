@@ -1,62 +1,104 @@
+// src/hooks/useStripe.js - Updated with correct function URLs
 import { toast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { plans } from '@/config/plans';
+import { supabase } from '@/lib/customSupabaseClient';
 
 export const useStripe = () => {
   const { user } = useAuth();
 
   const createCheckoutSession = async (priceId) => {
-    toast({
-      title: "🚧 Feature In Development",
-      description: "This feature isn't implemented yet—but don't worry! You can request it in your next prompt! 🚀",
-      duration: 5000
-    });
-    
-    // The following is mock logic and should be replaced with actual Stripe integration
-    setTimeout(() => {
-      if (!user) {
-        toast({ title: "Error", description: "You must be logged in to subscribe.", variant: "destructive" });
-        return;
-      }
-      
-      const targetPlan = plans.flatMap(p => 
-        Object.entries(p.priceId).map(([cycle, pId]) => ({ ...p, cycle, pId }))
-      ).find(p => p.pId === priceId);
-
-      if (!targetPlan) {
-        toast({ title: "Error", description: "Invalid plan selected.", variant: "destructive" });
-        return;
-      }
-
-      const isYearly = targetPlan.cycle === 'yearly';
-      const expires_at = new Date(Date.now() + (isYearly ? 365 : 30) * 24 * 60 * 60 * 1000).toISOString();
-
-      const newSub = {
-        user_id: user.id,
-        plan: targetPlan.id,
-        status: 'active',
-        expires_at: expires_at,
-        updated_at: new Date().toISOString(),
-        isActive: true,
-        tokens: targetPlan.tokens,
-      };
-
-      localStorage.setItem('lumina_subscription', JSON.stringify(newSub));
-
-      toast({
-        title: "Payment Successful! 🎉",
-        description: `Your subscription to ${targetPlan.name} is now active.`
+    if (!user) {
+      toast({ 
+        title: "Authentication required", 
+        description: "Please sign in to subscribe.", 
+        variant: "destructive" 
       });
+      return;
+    }
+
+    try {
+      // Get the session token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session');
+      }
+
+      // Call the edge function - using your actual function name
+      const response = await fetch('https://sdfkxxrfvehkzgfwgqeo.supabase.co/functions/v1/Stripe-Checkout-Session-Edge-Function', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ priceId }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create checkout session');
+      }
+
+      const { url } = await response.json();
       
-      // We'll use a callback instead of reloading the whole window
-      // The component calling this will handle the success state update.
-      // onSuccess(); 
-      // For now, let's keep reload to ensure context updates everywhere
-      window.location.reload();
-    }, 2000);
+      // Redirect to Stripe Checkout
+      window.location.href = url;
+    } catch (error) {
+      console.error('Stripe checkout error:', error);
+      toast({
+        title: "Payment Error",
+        description: error.message || "Failed to initiate payment. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const createPortalSession = async () => {
+    if (!user) {
+      toast({ 
+        title: "Authentication required", 
+        description: "Please sign in to manage your subscription.", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    try {
+      // Get the session token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session');
+      }
+
+      // Call the edge function - using your actual function name
+      const response = await fetch('https://sdfkxxrfvehkzgfwgqeo.supabase.co/functions/v1/Stripe-Customer-Portal-Edge-Function', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create portal session');
+      }
+
+      const { url } = await response.json();
+      
+      // Redirect to Stripe Customer Portal
+      window.location.href = url;
+    } catch (error) {
+      console.error('Stripe portal error:', error);
+      toast({
+        title: "Portal Error",
+        description: error.message || "Failed to open customer portal. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   return {
-    createCheckoutSession
+    createCheckoutSession,
+    createPortalSession,
   };
 };
